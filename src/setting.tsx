@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, Platform, SearchComponent, MarkdownRenderer, Component, requestUrl, Modal, setIcon } from "obsidian";
+import { App, PluginSettingTab, Setting, Platform, SearchComponent, MarkdownRenderer, Component, requestUrl, Modal, setIcon, Notice, normalizePath } from "obsidian";
 import { createRoot, Root } from "react-dom/client";
 import { unzipSync } from "fflate";
 
@@ -13,8 +13,44 @@ import { ShareManageModal } from "./views/share-manage-modal";
 import { AppWithInternal } from "./lib/utils/types";
 import { RuleEditor } from "./views/rule-editor";
 import { $ } from "./i18n/lang";
+import type { BlogConfig } from "./lib/api/http_api_service";
 import FastSync from "./main";
 import { updateVaultName } from "./lib/settings/vault_name";
+
+/**
+ * 简历页骨架。
+ *
+ * 给一份能直接用的内容，而不是一个空文件：一篇带标记的空笔记渲染出来是一个空白页面，
+ * 主人不知道该怎么写。三个容器各示范一次，他改字就行。
+ *
+ * 里面**没有任何真实个人信息**，只有占位符。自动生成的文件里写一个假名字，
+ * 总会有人忘了改。
+ */
+const PAGE_SKELETON = `---
+title: 关于我
+page: about
+avatar:
+---
+
+::: profile-head
+**在这里写名字** · 一句话介绍
+:::
+
+## 经历
+
+::: timeline
+- 2019–2024  某某医院 住院医师
+- 2024–        某某医院 主治医师
+:::
+
+## 找我
+
+::: links
+- 邮箱 mailto:you@example.com
+- GitHub https://github.com/you
+:::
+`;
+
 
 
 export interface PluginSettings {
@@ -84,6 +120,7 @@ export interface PluginSettings {
   mobileStatusDotPosition: "hidden" | "top-right" | "top-left" | "bottom-right" | "bottom-left" | "menu-bar"
   /** 是否显示更新红点提示（侧边栏及图标） */
   showUpgradeBadge: boolean
+  blockUpgrade: boolean
   /** 是否开启并发上传控制 (ACK 模式) */
   concurrencyControlEnabled: boolean
   /** 最大并发上传数量 */
@@ -162,6 +199,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   updateSource: "github",
   mobileStatusDotPosition: "menu-bar",
   showUpgradeBadge: true,
+  blockUpgrade: true,
   concurrencyControlEnabled: true,
   maxConcurrentUploads: 20,
   showConcurrencyIndicator: true,
@@ -181,7 +219,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   largeFileNoticeShown: [],
 }
 
-export type TabId = "GENERAL" | "DISPLAY" | "SHORTCUT" | "REMOTE" | "SYNC" | "CLOUD" | "DEBUG"
+export type TabId = "GENERAL" | "DISPLAY" | "SHORTCUT" | "REMOTE" | "SYNC" | "CLOUD" | "BLOG" | "ASK" | "DEBUG"
 
 // 预览 toast 位置，文案固定为 "Toast" / Preview toast position with fixed text "Toast"
 function showTestToast(top: number) {
@@ -319,6 +357,12 @@ export class SettingTab extends PluginSettingTab {
         case "SHORTCUT":
           this.renderShortcutSettings(contentEl)
           break
+        case "BLOG":
+          this.renderBlogSettings(contentEl)
+          break
+        case "ASK":
+          this.renderBlogAskSettings(contentEl)
+          break
       }
     }
     this.lastViewMode = currentMode
@@ -366,7 +410,7 @@ export class SettingTab extends PluginSettingTab {
     const threshold = 50
 
     if (Math.abs(deltaX) > threshold && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
-      const tabs: TabId[] = ["GENERAL", "DISPLAY", "REMOTE", "SYNC", "SHORTCUT", "CLOUD", "DEBUG"]
+      const tabs: TabId[] = ["GENERAL", "DISPLAY", "REMOTE", "SYNC", "SHORTCUT", "CLOUD", "BLOG", "ASK", "DEBUG"]
       const currentIndex = tabs.indexOf(this.activeTab)
 
       if (deltaX > 0) {
@@ -409,6 +453,7 @@ export class SettingTab extends PluginSettingTab {
     this.renderSyncSettings(contentEl)
     this.renderShortcutSettings(contentEl)
     this.renderCloudSettings(contentEl)
+    this.renderBlogSettings(contentEl)
     this.renderDebugSettings(contentEl)
   }
 
@@ -475,6 +520,8 @@ export class SettingTab extends PluginSettingTab {
       { id: "SYNC", label: $("setting.tab.sync") },
       { id: "SHORTCUT", label: $("setting.tab.shortcut") },
       { id: "CLOUD", label: $("setting.tab.cloud") },
+      { id: "BLOG", label: $("setting.tab.blog") },
+      { id: "ASK", label: $("setting.tab.ask") },
       { id: "DEBUG", label: $("setting.tab.debug") },
     ]
 
@@ -1211,6 +1258,17 @@ export class SettingTab extends PluginSettingTab {
     )
     this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.general.show_upgrade_badge_desc"))
 
+    new Setting(set).setName($("setting.general.block_upgrade")).setClass("fns-setting-item-checkbox").addToggle((toggle) =>
+      toggle.setValue(this.plugin.settings.blockUpgrade).onChange(async (value) => {
+        this.plugin.settings.blockUpgrade = value
+        await this.plugin.saveSettings()
+        this.plugin.menuManager?.refreshUpgradeBadge()
+        // 触发设置变更事件以通知 React 视图 / Trigger settings change event to notify React views
+        this.app.workspace.trigger("fns:settings-change")
+      }),
+    )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.general.block_upgrade_desc"))
+
     // 同步状态指示器 / Sync status indicator
     const syncSetting = new Setting(set).setName($("setting.display.show_sync_indicator")).setClass("fns-setting-item-checkbox").addToggle((toggle) =>
       toggle.setValue(this.plugin.settings.showSyncIndicator).onChange(async (value) => {
@@ -1839,6 +1897,528 @@ export class SettingTab extends PluginSettingTab {
           }),
       )
     this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.sync.merge_strategy_desc"))
+  }
+
+  /**
+   * 内置博客设置页
+   * 数据来自服务端的 /api/blog/config 与 /api/blog/posts
+   */
+  private renderBlogSettings(set: HTMLElement) {
+    const descEl = set.createDiv()
+    descEl.setText($("setting.blog.status_desc"))
+
+    const loadingEl = set.createDiv()
+    loadingEl.setText("…")
+
+    void (async () => {
+      const cfg = await this.plugin.api.getBlogConfig()
+      loadingEl.remove()
+
+      if (!cfg) {
+        const errEl = set.createDiv()
+        errEl.setText($("setting.blog.unavailable"))
+        return
+      }
+
+      new Setting(set)
+        .setName($("setting.blog.enabled"))
+        .setClass("fns-setting-item-checkbox")
+        .addToggle((toggle) =>
+          toggle.setValue(cfg.enabled).onChange(async (value) => {
+            const ok = await this.plugin.api.updateBlogConfig({ enabled: value })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+        )
+      this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog.enabled_desc"))
+
+      new Setting(set)
+        .setName($("setting.blog.title"))
+        .addText((text) =>
+          text.setPlaceholder("Notes").setValue(cfg.title).onChange(async (value) => {
+            const ok = await this.plugin.api.updateBlogConfig({ title: value })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+        )
+      this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog.title_desc"))
+
+      new Setting(set)
+        .setName($("setting.blog.open"))
+        .addButton((btn) =>
+          btn.setButtonText($("setting.blog.open")).onClick(() => {
+            window.open(cfg.homeUrl, "_blank")
+          }),
+        )
+      this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog.open_desc"))
+
+      // 已发布笔记列表 / List of published notes
+      const posts = await this.plugin.api.listBlogPosts()
+      new Setting(set).setName($("setting.blog.posts")).setHeading()
+
+      if (!posts.list.length) {
+        // 这里原先直接 return。它只该跳过这张列表，而它跳过了本函数后面的一切 ——
+        // 于是当读者还没有任何已发布笔记时，图谱、RSS、访问日志三块设置根本不会渲染出来，
+        // 而那正是他最需要去打开它们的时刻。
+        const emptyEl = set.createDiv()
+        emptyEl.setText($("setting.blog.posts_empty"))
+      } else {
+        const listEl = set.createDiv("fns-blog-posts")
+        for (const p of posts.list) {
+          const row = listEl.createDiv("fns-blog-post-row")
+          const link = row.createEl("a", { text: p.title, href: p.url })
+          link.setAttr("target", "_blank")
+          if (p.createdAt) {
+            row.createSpan({ text: p.createdAt, cls: "fns-blog-post-date" })
+          }
+        }
+      }
+
+      this.renderBlogGraphSettings(set, cfg)
+      this.renderBlogRssSettings(set, cfg.homeUrl)
+      this.renderBlogAccessLogSettings(set)
+      this.renderBlogPageSettings(set)
+    })()
+  }
+
+  /**
+   * 图谱设置。
+   *
+   * 这几项此前只能在服务端 config.yaml 里改，而它们恰恰是最常被调的东西：
+   * 关了图谱的文章页更安静，深度决定读者一进来能看见多少关联。
+   * 放进设置页之后，改完刷新博客即可看到，不必去碰服务器上的文件。
+   */
+  private renderBlogGraphSettings(set: HTMLElement, cfg: BlogConfig) {
+    new Setting(set).setName($("setting.blog_graph.title")).setHeading()
+
+    new Setting(set)
+      .setName($("setting.blog_graph.show"))
+      .setClass("fns-setting-item-checkbox")
+      .addToggle((toggle) =>
+        toggle.setValue(cfg.showGraph).onChange(async (value) => {
+          const ok = await this.plugin.api.updateBlogConfig({ showGraph: value })
+          if (!ok) new Notice($("setting.blog.not_admin"))
+        }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_graph.show_desc"))
+
+    // 深度用滑块：取值只有 1..3，而且改动的效果是"看得见更多还是更少"，
+    // 属于更适合拖动试的连续量，而不是需要精确输入的数字。
+    let depthValue = cfg.localGraphDepth
+    const depthSetting = new Setting(set)
+      .setName($("setting.blog_graph.depth"))
+      .addSlider((slider) =>
+        slider
+          .setLimits(1, 3, 1)
+          .setValue(depthValue)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            depthValue = value
+            const ok = await this.plugin.api.updateBlogConfig({ localGraphDepth: value })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(depthSetting.descEl, $("setting.blog_graph.depth_desc"))
+
+    new Setting(set)
+      .setName($("setting.blog_graph.scope"))
+      .addDropdown((dd) =>
+        dd
+          .addOption("shared", $("setting.blog_graph.scope_shared"))
+          .addOption("all", $("setting.blog_graph.scope_all"))
+          .setValue(cfg.graphScope)
+          .onChange(async (value) => {
+            const ok = await this.plugin.api.updateBlogConfig({
+              graphScope: value as "shared" | "all",
+            })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_graph.scope_desc"))
+
+    new Setting(set)
+      .setName($("setting.blog_graph.max_nodes"))
+      .addText((text) =>
+        text
+          .setPlaceholder("120")
+          .setValue(String(cfg.maxGraphNodes))
+          .onChange(async (value) => {
+            const n = Number.parseInt(value, 10)
+            // 非法输入留给服务端夹取，不在这里静默改成别的值 ——
+            // 读者输入 1000 时应当看到它被限到 400，而不是看到一个他没打的数字。
+            if (!Number.isFinite(n)) return
+            const ok = await this.plugin.api.updateBlogConfig({ maxGraphNodes: n })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_graph.max_nodes_desc"))
+
+    new Setting(set)
+      .setName($("setting.blog_graph.open"))
+      .addButton((btn) =>
+        btn.setButtonText($("setting.blog_graph.open_btn")).onClick(() => {
+          window.open(cfg.homeUrl, "_blank")
+        }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_graph.open_desc"))
+  }
+
+  /**
+   * RSS 订阅。
+   *
+   * 这里不提供开关：订阅源由服务端按已发布笔记实时生成，关闭它只会让读者复制到一个 404。
+   * 提供的是地址、复制与校验 —— 也就是把"我该把哪个链接给别人"这件事一次说清。
+   */
+  private renderBlogRssSettings(set: HTMLElement, homeUrl: string) {
+    new Setting(set).setName($("setting.blog_rss.title")).setHeading()
+
+    const rssUrl = homeUrl.replace(/\/+$/, "") + "/rss.xml"
+
+    new Setting(set)
+      .setName($("setting.blog_rss.url"))
+      .addText((text) => {
+        text.setValue(rssUrl)
+        text.inputEl.readOnly = true
+        // 只读但可选中：读者要的是把它粘到别处，而不是在插件里编辑它。
+        text.inputEl.addEventListener("focus", () => text.inputEl.select())
+      })
+      .addExtraButton((btn) =>
+        btn
+          .setIcon("copy")
+          .setTooltip($("setting.blog_rss.copy"))
+          .onClick(async () => {
+            await navigator.clipboard.writeText(rssUrl)
+            new Notice($("setting.blog_rss.copied"))
+          }),
+      )
+      .addExtraButton((btn) =>
+        btn
+          .setIcon("external-link")
+          .setTooltip($("setting.blog_rss.open"))
+          .onClick(() => window.open(rssUrl, "_blank")),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_rss.url_desc"))
+  }
+
+  /**
+   * 访问日志。
+   *
+   * 默认不加载，点开才请求：它是唯一会按天累积的服务端数据，而主人绝大多数时候
+   * 打开设置页并不是为了看它。摘要先给"有多少访问、有没有出错、哪些页面被读得最多"，
+   * 明细收在折叠里 —— 逐条记录适合排查，不适合当首屏。
+   *
+   * 唯一访客数按设计无法计算（服务端不存任何可区分访客的标识），
+   * 因此这里显示「不适用」而不是把服务端的 0 当作真实数字展示。
+   */
+  private renderBlogAccessLogSettings(set: HTMLElement) {
+    new Setting(set).setName($("setting.blog_access.title")).setHeading()
+
+    const descEl = set.createDiv()
+    descEl.setText($("setting.blog_access.desc"))
+
+    const holder = set.createDiv("fns-blog-access")
+
+    new Setting(set)
+      .setName($("setting.blog_access.load"))
+      .addDropdown((dd) =>
+        dd
+          .addOption("7", $("setting.blog_access.days_7"))
+          .addOption("14", $("setting.blog_access.days_14"))
+          .addOption("30", $("setting.blog_access.days_30"))
+          .setValue("7")
+          // 选中的天数要真的被用上。早先这里与下面的按钮都调 render(7)，
+          // 于是选「30 天」看到的仍是 7 天 —— 控件看起来工作了，实际没有。
+          .onChange((value) => render(Number.parseInt(value, 10) || 7)),
+      )
+      .addButton((btn) =>
+        btn.setButtonText($("setting.blog_access.load_btn")).onClick(() => render(7)),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_access.load_desc"))
+
+    const render = (days: number) => {
+      holder.empty()
+      const busy = holder.createDiv("fns-blog-access-busy")
+      busy.setText($("setting.blog_access.loading"))
+
+      void (async () => {
+        const page = await this.plugin.api.getBlogAccessLog(days, 200)
+        holder.empty()
+        if (!page) {
+          holder.createDiv("fns-blog-access-err").setText($("setting.blog_access.unavailable"))
+          return
+        }
+
+        const s = page.summary
+        const stats = holder.createDiv("fns-blog-access-stats")
+        const addStat = (label: string, value: string) => {
+          const cell = stats.createDiv("fns-blog-access-stat")
+          cell.createDiv("fns-blog-access-stat-v").setText(value)
+          cell.createDiv("fns-blog-access-stat-l").setText(label)
+        }
+        addStat($("setting.blog_access.total"), String(s.total))
+        addStat($("setting.blog_access.err4"), String(s.status4xx))
+        addStat($("setting.blog_access.err5"), String(s.status5xx))
+        // 不适用，而不是 0 —— 服务端按隐私设计不存可区分访客的标识。
+        addStat($("setting.blog_access.uniques"), $("setting.blog_access.na"))
+
+        if (s.byPath.length) {
+          holder.createDiv("fns-blog-access-h").setText($("setting.blog_access.top_paths"))
+          const pt = holder.createDiv("fns-blog-access-table")
+          for (const row of s.byPath.slice(0, 8)) {
+            const r = pt.createDiv("fns-blog-access-tr")
+            r.createDiv("fns-blog-access-td-k").setText(row.key)
+            r.createDiv("fns-blog-access-td-n").setText(String(row.count))
+          }
+        }
+
+        if (s.byDay.length) {
+          holder.createDiv("fns-blog-access-h").setText($("setting.blog_access.by_day"))
+          const dt = holder.createDiv("fns-blog-access-table")
+          for (const row of s.byDay.slice(0, 10)) {
+            const r = dt.createDiv("fns-blog-access-tr")
+            r.createDiv("fns-blog-access-td-k").setText(row.key)
+            r.createDiv("fns-blog-access-td-n").setText(String(row.count))
+          }
+        }
+
+        // 明细收进折叠：默认摊开会把首屏给掉，而排查时才需要它。
+        const det = holder.createEl("details", { cls: "fns-blog-access-detail" })
+        det.createEl("summary", { text: $("setting.blog_access.detail") })
+        const tbl = det.createDiv("fns-blog-access-table")
+        const head = tbl.createDiv("fns-blog-access-tr fns-is-head")
+        // 逐项列出而不是拼 "col_" + key:$() 的入参是字面量联合类型,
+        // 拼接出来的 string 不在其中 —— 那样写会静默退化成运行时的键查找,丢掉拼写检查。
+        for (const label of [
+          $("setting.blog_access.col_time"),
+          $("setting.blog_access.col_method"),
+          $("setting.blog_access.col_path"),
+          $("setting.blog_access.col_status"),
+          $("setting.blog_access.col_ms"),
+          $("setting.blog_access.col_ip"),
+          $("setting.blog_access.col_client"),
+        ]) {
+          head.createDiv("fns-blog-access-td-k").setText(label)
+        }
+        for (const e of page.entries.slice(0, 100)) {
+          const r = tbl.createDiv("fns-blog-access-tr")
+          for (const v of [e.time, e.method, e.path, String(e.status), String(e.ms), e.ip, e.client]) {
+            r.createDiv("fns-blog-access-td-k").setText(v)
+          }
+        }
+
+        // 原样展示服务端给的隐私说明，而不是在插件里另写一段 ——
+        // 两处各写一遍，早晚会有一处不再是真的。
+        holder.createDiv("fns-blog-access-note").setText(page.note)
+        if (page.entries.length === 0) {
+          holder.createDiv("fns-blog-access-empty").setText($("setting.blog_access.empty"))
+        }
+      })()
+    }
+  }
+
+  /**
+   * 页面笔记（简历页）。
+   *
+   * 服务端靠 `page: about` 标记识别页面，不依赖路径 —— 笔记放在哪都行。
+   * 这里做的是另一件事：把「建一篇笔记、写上标记、再套上排版」变成一次点击。
+   *
+   * 三条刻意的设计：
+   *  1. **不自动创建**。插件在没有被要求的情况下往 vault 里写文件是不礼貌的：
+   *     主人的仓库会凭空出现一个文件夹和一份文件。改为检测后提示，单击才创建。
+   *  2. **绝不覆盖**。已有文件一律不动，哪怕内容看起来是空的。
+   *  3. **候选路径有序探测**。用户的中文 vault 里，`关于.md` 比 `about.md` 更自然，
+   *     所以两个都认，按顺序找。设置页显示实际命中的是哪一个 ——
+   *     「我改了文件怎么没生效」这类问题因此一眼可见。
+   */
+  private renderBlogPageSettings(set: HTMLElement) {
+    new Setting(set).setName($("setting.blog_page.title")).setHeading()
+
+    const descEl = set.createDiv()
+    descEl.setText($("setting.blog_page.desc"))
+
+    const statusEl = set.createDiv("fns-blog-page-status")
+
+    // 候选顺序：文件夹内先找中文名，再找英文名；再退到 vault 根目录。
+    // 这与服务端无关（服务端靠标记），只是创建时的落点约定。
+    const FOLDER = "简历"
+    const CANDIDATES = [`${FOLDER}/关于.md`, `${FOLDER}/about.md`, "关于.md", "about.md"]
+    const TARGET = `${FOLDER}/关于.md`
+
+    const refresh = async () => {
+      statusEl.empty()
+      const adapter = this.plugin.app.vault.adapter
+
+      let found: string | null = null
+      for (const rel of CANDIDATES) {
+        if (await adapter.exists(normalizePath(rel))) {
+          found = rel
+          break
+        }
+      }
+
+      const row = statusEl.createDiv("fns-blog-page-row")
+      if (found) {
+        row.createSpan({ text: $("setting.blog_page.found"), cls: "fns-blog-page-label" })
+        row.createEl("code", { text: found })
+        const open = row.createEl("a", { text: $("setting.blog_page.open_hint"), href: "#" })
+        open.addEventListener("click", (e) => {
+          e.preventDefault()
+          // 打开的是笔记本身，不是博客页面 —— 主人此刻要改的是内容。
+          const f = this.plugin.app.vault.getAbstractFileByPath(normalizePath(found!))
+          if (f) void this.plugin.app.workspace.getLeaf(false).openFile(f as never)
+        })
+      } else {
+        row.createSpan({ text: $("setting.blog_page.missing"), cls: "fns-blog-page-label" })
+      }
+      return found
+    }
+
+    void refresh()
+
+    new Setting(set)
+      .setName($("setting.blog_page.create"))
+      .setDesc($("setting.blog_page.create_desc"))
+      .addButton((btn) =>
+        btn
+          .setButtonText($("setting.blog_page.create_btn"))
+          .setCta()
+          .onClick(async () => {
+            const adapter = this.plugin.app.vault.adapter
+            const target = normalizePath(TARGET)
+
+            // 已存在就只提示。覆盖主人的文件是不可逆的，而一次创建操作不值得那个风险。
+            if (await adapter.exists(target)) {
+              new Notice($("setting.blog_page.exists"))
+              await refresh()
+              return
+            }
+
+            try {
+              if (!(await adapter.exists(normalizePath(FOLDER)))) {
+                await adapter.mkdir(normalizePath(FOLDER))
+              }
+              await adapter.write(target, PAGE_SKELETON)
+              new Notice($("setting.blog_page.created"))
+              await refresh()
+            } catch (e) {
+              new Notice($("setting.blog_page.create_failed"))
+              dumpError("create page note failed:", e)
+            }
+          }),
+      )
+
+    new Setting(set)
+      .setName($("setting.blog_page.open"))
+      .addButton((btn) =>
+        btn.setButtonText($("setting.blog_page.open_btn")).onClick(() => {
+          // 绝对地址在服务端拼（它知道 baseURL），这里只需要相对路径。
+          window.open("/blog/about", "_blank")
+        }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_page.open_desc"))
+  }
+
+  /**
+   * 博客问答（AI）设置
+   * 数据来自服务端的 /api/blog/ai-config，仅管理员可写。
+   *
+   * 这里的采样参数一律用文本框而不是数字输入：presence-penalty 与 frequency-penalty
+   * 必须能表达「显式 0」，而数字输入的 0 与「留空」在前端无法区分。留空即表示不发送该参数。
+   */
+  private renderBlogAskSettings(set: HTMLElement) {
+    new Setting(set).setName($("setting.blog_ask.title")).setHeading()
+
+    const descEl = set.createDiv()
+    descEl.setText($("setting.blog_ask.desc"))
+
+    // Where the entry actually lives on the blog, so there is no doubt about what this page
+    // controls after saving.
+    // 明确写出入口在博客上的位置，保存后不必猜这个页面对应的是什么。
+    const pathEl = set.createDiv("fns-ask-path")
+    pathEl.setText($("setting.blog_ask.where"))
+
+    const loadingEl = set.createDiv()
+    loadingEl.setText("…")
+
+    void (async () => {
+      const cfg = await this.plugin.api.getAIConfig()
+      loadingEl.remove()
+
+      if (!cfg) {
+        const errEl = set.createDiv()
+        errEl.setText($("setting.blog_ask.unavailable"))
+        return
+      }
+
+      const save = async (patch: Parameters<typeof this.plugin.api.updateAIConfig>[0]) => {
+        const ok = await this.plugin.api.updateAIConfig(patch)
+        if (!ok) new Notice($("setting.blog.not_admin"))
+        return ok
+      }
+
+      new Setting(set)
+        .setName($("setting.blog_ask.enabled"))
+        .setClass("fns-setting-item-checkbox")
+        .addToggle((toggle) =>
+          toggle.setValue(cfg.enabled).onChange(async (value) => {
+            await save({ enabled: value })
+          }),
+        )
+      this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_ask.enabled_desc"))
+
+      new Setting(set)
+        .setName($("setting.blog_ask.open"))
+        .addButton((btn) =>
+          btn.setButtonText($("setting.blog.open")).onClick(() => window.open(cfg.homeUrl, "_blank")),
+        )
+      this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_ask.open_desc"))
+
+      // ── 模型线路 ────────────────────────────────────────────────────────
+      new Setting(set).setName($("setting.blog_ask.routes")).setHeading()
+      const routesDesc = set.createDiv()
+      routesDesc.setText($("setting.blog_ask.routes_desc"))
+
+      const routes = cfg.routes.length
+        ? cfg.routes
+        : [{ name: "", baseUrl: "", apiKey: "", model: "", minInterval: "1s", timeout: "120s", enabled: true }]
+
+      const routesEl = set.createDiv("fns-ask-routes")
+      routes.forEach((r, idx) => {
+        const card = routesEl.createDiv("fns-ask-route")
+        card.createDiv({ text: `${$("setting.blog_ask.route")} ${idx + 1}`, cls: "fns-ask-route-head" })
+
+        const patchRoute = async (field: string, value: string | boolean) => {
+          const next = routes.map((x, i) =>
+            i === idx ? { ...x, [field]: value } : { name: x.name, baseUrl: x.baseUrl, apiKey: x.apiKey, model: x.model, minInterval: x.minInterval, timeout: x.timeout, enabled: x.enabled },
+          )
+          await save({ routes: next })
+        }
+
+        new Setting(card)
+          .setName($("setting.blog_ask.route_name"))
+          .addText((t) => t.setValue(r.name).onChange((v) => void patchRoute("name", v)))
+        new Setting(card)
+          .setName($("setting.blog_ask.base_url"))
+          .addText((t) =>
+            t.setPlaceholder("https://api.example.com/v1").setValue(r.baseUrl).onChange((v) => void patchRoute("baseUrl", v)),
+          )
+        new Setting(card)
+          .setName($("setting.blog_ask.model"))
+          .addText((t) => t.setPlaceholder("Qwen/Qwen3.5-4B").setValue(r.model).onChange((v) => void patchRoute("model", v)))
+        new Setting(card)
+          .setName($("setting.blog_ask.api_key"))
+          .addText((t) => {
+            t.inputEl.type = "password"
+            t.setPlaceholder("sk-…").setValue(r.apiKey).onChange((v) => void patchRoute("apiKey", v))
+          })
+        new Setting(card)
+          .setName($("setting.blog_ask.min_interval"))
+          .setDesc($("setting.blog_ask.min_interval_desc"))
+          .addText((t) => t.setPlaceholder("1s").setValue(r.minInterval).onChange((v) => void patchRoute("minInterval", v)))
+        new Setting(card)
+          .setName($("setting.blog_ask.timeout"))
+          .setDesc($("setting.blog_ask.timeout_desc"))
+          .addText((t) => t.setPlaceholder("120s").setValue(r.timeout).onChange((v) => void patchRoute("timeout", v)))
+      })
+    })()
   }
 
   private renderCloudSettings(set: HTMLElement) {

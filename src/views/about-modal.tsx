@@ -131,7 +131,7 @@ const AboutView = ({ plugin, type, closeModal }: { plugin: FastSync; type: 'plug
                         isNew={pluginIsNew}
                         changelog={pluginNewChangelog || pluginCurrentChangelog}
                         history={pluginHistory}
-                        canUpgrade={pluginIsNew}
+                        canUpgrade={pluginIsNew && !plugin.settings.blockUpgrade}
                         onUpgrade={() => { void handlePluginUpgrade(); }}
                         isUpgrading={isUpgrading}
                         status={upgradeStatus}
@@ -148,7 +148,7 @@ const AboutView = ({ plugin, type, closeModal }: { plugin: FastSync; type: 'plug
                         isNew={serverIsNew}
                         changelog={serverNewChangelog || serverCurrentChangelog || serverBaseChangelog}
                         history={serverHistory}
-                        canUpgrade={serverIsNew && isAdmin}
+                        canUpgrade={serverIsNew && isAdmin && !plugin.settings.blockUpgrade}
                         onUpgrade={() => { void handleUpgrade(); }}
                         isUpgrading={isUpgrading}
                         status={upgradeStatus}

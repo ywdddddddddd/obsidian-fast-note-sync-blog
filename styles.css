@@ -4839,4 +4839,277 @@ body .suggestion-container {
   cursor: pointer;
 }
 
-/*# sourceMappingURL=styles.css.map */
+/* 检索入口位置提示 */
+.fns-ask-path {
+  font-size: var(--font-ui-smaller, 12px);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-left: 2px solid var(--interactive-accent);
+  border-radius: var(--radius-s, 4px);
+  padding: 6px 10px;
+  margin: 4px 0 10px;
+}
+
+/* ── 知识库问答：模型线路卡片 ──────────────────────────────────────────
+   每条线路是一张带边框的卡片，内部沿用 Obsidian 原生 Setting 行，
+   这样深浅主题与既有设置项完全一致，不需要额外配色。 */
+.fns-ask-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.fns-ask-route {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  padding: 8px 12px 4px;
+  background: var(--background-secondary);
+}
+
+.fns-ask-route-head {
+  font-size: var(--font-ui-smaller, 12px);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+/* 卡片内的 Setting 行去掉重复的分隔线，避免卡片被切碎 */
+.fns-ask-route .setting-item {
+  border-top: none;
+  padding: 8px 0;
+}
+
+.fns-ask-route .setting-item-name {
+  font-size: var(--font-ui-small, 13px);
+}
+
+/* ── 博客设置:已发布笔记列表 ─────────────────────────────────────────
+   这些类此前在代码里被创建、却没有任何样式 —— 于是"已发布笔记"渲染成一串
+   贴在一起的裸链接,与设置页其它区块的观感断裂。 */
+.fns-blog-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 18px;
+}
+
+.fns-blog-post-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--radius-s, 6px);
+  transition: background-color 120ms ease;
+}
+.fns-blog-post-row:hover {
+  background-color: var(--background-modifier-hover);
+}
+.fns-blog-post-row a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  text-decoration: none;
+}
+.fns-blog-post-row a:hover {
+  color: var(--text-accent);
+}
+
+.fns-blog-post-date {
+  flex: none;
+  font-size: var(--font-ui-smaller, 11px);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+/* ── 博客设置:访问日志 ───────────────────────────────────────────────
+   摘要用卡片(grid)而不是表格:主人要看的是"多少访问、有没有出错",
+   表格留给需要逐条排查时的明细。 */
+.fns-blog-access {
+  margin: 4px 0 18px;
+}
+
+.fns-blog-access-busy,
+.fns-blog-access-empty,
+.fns-blog-access-note {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.fns-blog-access-busy {
+  padding: 10px 0;
+}
+
+.fns-blog-access-err {
+  padding: 9px 11px;
+  border-radius: var(--radius-s, 6px);
+  background-color: var(--background-modifier-error);
+  color: var(--text-error);
+  font-size: var(--font-ui-small, 12px);
+  line-height: 1.5;
+}
+
+.fns-blog-access-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.fns-blog-access-stat {
+  padding: 9px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 6px);
+  background-color: var(--background-secondary);
+}
+
+.fns-blog-access-stat-v {
+  font-size: var(--font-ui-medium, 15px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+  line-height: 1.2;
+}
+
+.fns-blog-access-stat-l {
+  margin-top: 2px;
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-muted);
+}
+
+.fns-blog-access-h {
+  margin: 12px 0 6px;
+  font-size: var(--font-ui-smaller, 11px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.fns-blog-access-table {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 6px);
+  overflow: hidden;
+}
+
+.fns-blog-access-tr {
+  display: grid;
+  /* 七个字段:时间/方法/路径/状态/耗时/IP/客户端。
+     路径占主要宽度,其余按内容收窄 —— 于是长路径不会把整行撑开。 */
+  grid-template-columns: 9.5em 3.4em minmax(0, 1fr) 3.2em 4.4em 7.5em 5.5em;
+  gap: 0 10px;
+  padding: 6px 10px;
+  font-size: var(--font-ui-smaller, 11px);
+}
+.fns-blog-access-tr + .fns-blog-access-tr {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.fns-blog-access-tr.fns-is-head {
+  background-color: var(--background-secondary);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.fns-blog-access-td-k {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+}
+
+.fns-blog-access-tr.fns-is-head .fns-blog-access-td-k {
+  color: var(--text-muted);
+}
+
+.fns-blog-access-td-n {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* 明细默认折叠:首屏给摘要,逐条记录留给排查。 */
+.fns-blog-access-detail {
+  margin-top: 14px;
+}
+.fns-blog-access-detail > summary {
+  cursor: pointer;
+  font-size: var(--font-ui-smaller, 11px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  user-select: none;
+}
+.fns-blog-access-detail > summary:hover {
+  color: var(--text-muted);
+}
+.fns-blog-access-detail[open] > summary {
+  margin-bottom: 6px;
+}
+.fns-blog-access-detail {
+  /* 明细表的两行布局:代理页与每日统计用的是 key/value,不是上面那七列。 */
+}
+.fns-blog-access-detail .fns-blog-access-tr {
+  grid-template-columns: minmax(0, 1fr) 5em;
+}
+
+@media (max-width: 640px) {
+  .fns-blog-access-tr {
+    grid-template-columns: 8.5em minmax(0, 1fr) 3.2em;
+  }
+  /* 窄屏只留时间/路径/状态,其余字段隐藏 —— 挤成七列的表格在手机上无法阅读。 */
+  .fns-blog-access-tr > .fns-blog-access-td-k:nth-child(2),
+  .fns-blog-access-tr > .fns-blog-access-td-k:nth-child(5),
+  .fns-blog-access-tr > .fns-blog-access-td-k:nth-child(6),
+  .fns-blog-access-tr > .fns-blog-access-td-k:nth-child(7) {
+    display: none;
+  }
+}
+/* ── 博客设置:页面笔记（简历）───────────────────────────────────────── */
+.fns-blog-page-status {
+  margin: 6px 0 14px;
+}
+
+.fns-blog-page-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 6px);
+  background-color: var(--background-secondary);
+  font-size: var(--font-ui-small, 12px);
+}
+
+.fns-blog-page-label {
+  color: var(--text-muted);
+}
+
+.fns-blog-page-row code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller, 11px);
+}
+
+.fns-blog-page-row a {
+  margin-left: auto;
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.fns-blog-page-row a:hover {
+  text-decoration: underline;
+}

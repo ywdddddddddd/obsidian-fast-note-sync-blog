@@ -161,6 +161,12 @@ export class VersionManager {
      */
     public async upgradePlugin(onProgress: (status: string) => void, signal?: AbortSignal): Promise<void> {
         const plugin = this.plugin;
+        // Local-patch protection: when the user blocks upgrades, refuse to overwrite the
+        // plugin directory (a local build would be lost otherwise).
+        // 本地补丁保护：用户禁止升级时拒绝覆盖插件目录，避免本地构建被冲掉。
+        if (plugin.settings.blockUpgrade) {
+            throw new Error($("setting.general.block_upgrade"));
+        }
         onProgress($("ui.version.upgrading_plugin"));
         dump("Starting plugin upgrade process in VersionManager...");
 
@@ -292,6 +298,13 @@ export class VersionManager {
      */
     public async upgradeServer(onProgress: (status: string) => void, signal?: AbortSignal): Promise<void> {
         const plugin = this.plugin;
+        // Local-patch protection: the running server binary carries local patches
+        // (rename-safe share migration + deleted-note guard); an in-app upgrade replaces it.
+        // 本地补丁保护：正在运行的服务端二进制带有本地补丁（分享链接迁移 +
+        // 已删除笔记守卫），应用内升级会把它替换掉。
+        if (plugin.settings.blockUpgrade) {
+            throw new Error($("setting.general.block_upgrade"));
+        }
         onProgress($("ui.version.upgrading"));
 
         // 1. 断开 WebSocket

@@ -131,6 +131,124 @@ export interface ShareListResponse {
     pager: Pager;
 }
 
+/**
+ * 博客问答（AI）上游线路。
+ * 顺序即降级顺序：前一条失败时自动改用下一条。
+ */
+export interface AIRouteConfig {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    minInterval: string;
+    timeout: string;
+    enabled: boolean;
+}
+
+/** 博客问答（AI）配置 */
+export interface AIConfig {
+    enabled: boolean;
+    topK: number;
+    maxContextChars: number;
+    cacheTtl: string;
+    maxQuestionChars: number;
+    systemPrompt: string;
+    routes: AIRouteConfig[];
+    homeUrl: string;
+    askUrl: string;
+}
+
+/** 部分更新：未提供的字段保持原值；routes 一旦提供即整表替换 */
+export interface AIConfigPatch {
+    enabled?: boolean;
+    topK?: number;
+    maxContextChars?: number;
+    cacheTtl?: string;
+    maxQuestionChars?: number;
+    systemPrompt?: string;
+    routes?: Partial<AIRouteConfig>[];
+}
+
+/** 内置博客配置；图谱四项此前只能改 config.yaml，现已可由本页读写 */
+export interface BlogConfig {
+    enabled: boolean;
+    title: string;
+    indexable: boolean;
+    showIndex: boolean;
+    uid: number;
+    homeUrl: string;
+    /** shared = 仅已分享笔记进图谱；all = 未分享笔记以匿名节点参与连接关系 */
+    graphScope: "shared" | "all";
+    /** 全站图谱节点上限，服务端夹取在 10..400 */
+    maxGraphNodes: number;
+    /** 总开关：关闭后文章页与首页都不渲染图谱 */
+    showGraph: boolean;
+    /** 文章页图谱的默认深度，服务端夹取在 1..3 */
+    localGraphDepth: number;
+}
+
+/** 部分更新：未提供的字段保持原值 */
+export interface BlogConfigPatch {
+    enabled?: boolean;
+    title?: string;
+    indexable?: boolean;
+    showIndex?: boolean;
+    graphScope?: "shared" | "all";
+    maxGraphNodes?: number;
+    showGraph?: boolean;
+    localGraphDepth?: number;
+}
+
+/**
+ * 一条博客访问记录。
+ *
+ * 这里没有来源页、cookie、会话或完整 User-Agent 字段，这不是遗漏：
+ * 服务端从未存下这些值，因此面板、备份或日后读取该文件的任何人都无法从它泄露它们。
+ * IP 在写入时已打码，查询串在写入前已丢弃，User-Agent 只保留浏览器族。
+ */
+export interface BlogAccessItem {
+    /** UTC，秒级 */
+    time: string;
+    method: string;
+    path: string;
+    status: number;
+    ms: number;
+    /** 已打码，如 127.0.0.x */
+    ip: string;
+    /** 仅浏览器族，如 Chrome / Safari / curl */
+    client: string;
+}
+
+/** 聚合结果的一行 */
+export interface BlogAccessCount {
+    key: string;
+    count: number;
+}
+
+/** 主人真正要看的内容：总计，而不是原始访问 */
+export interface BlogAccessSummary {
+    total: number;
+    status4xx: number;
+    status5xx: number;
+    byPath: BlogAccessCount[];
+    byDay: BlogAccessCount[];
+    /**
+     * 恒为 0。按隐私设计不存任何可区分访客的标识，因此唯一访客数算不出来 ——
+     * 这是取舍而不是缺陷，界面应显示「不适用」而不是把 0 当作真实数字。
+     */
+    uniques: number;
+}
+
+/** 访问日志分页，含聚合摘要与隐私说明 */
+export interface BlogAccessLogPage {
+    entries: BlogAccessItem[];
+    summary: BlogAccessSummary;
+    days: number;
+    retentionDays: number;
+    /** 服务端给出的隐私说明，原样展示给用户 */
+    note: string;
+}
+
 export interface FileInfoResponse {
     id: number;
     path: string;
@@ -277,6 +395,120 @@ export class HttpApiService {
             return (status >= 200 && status < 300) || status === 404;
         } catch {
             return false;
+        }
+    }
+
+    /**
+     * 获取内置博客配置
+     * GET /api/blog/config
+     */
+    async getBlogConfig(signal?: AbortSignal): Promise<BlogConfig | null> {
+        try {
+            const { status, json } = await this.request(`/api/blog/config`, { method: "GET", signal });
+            const res = json as ApiResponse<BlogConfig>;
+            return status === 200 && res.data ? res.data : null;
+        } catch (e) {
+            dumpError("getBlogConfig error:", e);
+            return null;
+        }
+    }
+
+    /**
+     * 更新内置博客配置（仅管理员可写）
+     * POST /api/blog/config
+     */
+    async updateBlogConfig(patch: BlogConfigPatch, signal?: AbortSignal): Promise<boolean> {
+        try {
+            const { status, json } = await this.request(`/api/blog/config`, {
+                method: "POST",
+                body: JSON.stringify(patch),
+                signal
+            });
+            return status === 200 && this.isSuccess(json);
+        } catch (e) {
+            dumpError("updateBlogConfig error:", e);
+            return false;
+        }
+    }
+
+    /**
+     * 获取博客问答（AI）配置
+     * GET /api/blog/ai-config
+     */
+    async getAIConfig(signal?: AbortSignal): Promise<AIConfig | null> {
+        try {
+            const { status, json } = await this.request(`/api/blog/ai-config`, { method: "GET", signal });
+            const res = json as ApiResponse<AIConfig>;
+            return status === 200 && res.data ? res.data : null;
+        } catch (e) {
+            dumpError("getAIConfig error:", e);
+            return null;
+        }
+    }
+
+    /**
+     * 更新博客问答（AI）配置（仅管理员可写）
+     * POST /api/blog/ai-config
+     */
+    async updateAIConfig(patch: AIConfigPatch, signal?: AbortSignal): Promise<boolean> {
+        try {
+            const { status, json } = await this.request(`/api/blog/ai-config`, {
+                method: "POST",
+                body: JSON.stringify(patch),
+                signal
+            });
+            return status === 200 && this.isSuccess(json);
+        } catch (e) {
+            dumpError("updateAIConfig error:", e);
+            return false;
+        }
+    }
+
+    /**
+     * 获取博客访问日志（仅管理员可读）
+     * GET /api/blog/access-log
+     *
+     * 服务端只记录博客页面，IP 在写入时已打码，查询串在写入前已丢弃，
+     * User-Agent 只保留浏览器族。因此这里拿到的每条记录都不含可识别信息 ——
+     * 这是服务端的承诺，客户端不需要也不应该再做一次脱敏。
+     */
+    async getBlogAccessLog(
+        days = 7,
+        limit = 100,
+        signal?: AbortSignal
+    ): Promise<BlogAccessLogPage | null> {
+        try {
+            const { status, json } = await this.request(
+                `/api/blog/access-log?days=${days}&limit=${limit}`,
+                { method: "GET", signal }
+            );
+            const res = json as ApiResponse<BlogAccessLogPage>;
+            return status === 200 && res.data ? res.data : null;
+        } catch (e) {
+            dumpError("getBlogAccessLog error:", e);
+            return null;
+        }
+    }
+
+    /**
+     * 列出已发布到博客的笔记（含完整地址）
+     * GET /api/blog/posts
+     */    async listBlogPosts(signal?: AbortSignal): Promise<{
+        list: { title: string; url: string; path: string; createdAt: string }[];
+        homeUrl: string;
+        enabled: boolean;
+    }> {
+        try {
+            const { status, json } = await this.request(`/api/blog/posts`, { method: "GET", signal });
+            const res = json as ApiResponse<{
+                list: { title: string; url: string; path: string; createdAt: string }[];
+                homeUrl: string;
+                enabled: boolean;
+            }>;
+            return status === 200 && res.data ? res.data : { list: [], homeUrl: "", enabled: false };
+        } catch (e) {
+            dumpError("listBlogPosts error:", e);
+            return { list: [], homeUrl: "", enabled: false };
         }
     }
 

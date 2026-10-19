@@ -1,4 +1,4 @@
-import { Plugin, Platform, addIcon } from "obsidian";
+import { Plugin, Platform, addIcon, Notice, TFile } from "obsidian";
 
 import { dump, dumpError, checkAndNotifyCaseConflict, setLogEnabled, isPathMatch, parseRules, stringifyRules, getPluginDir, showSyncNotice, loadApiToken, saveApiToken, loadApiUrl, saveApiUrl, loadVault, saveVault, loadAutoRedirect, saveAutoRedirect, loadWsPreProbe, saveWsPreProbe, obfuscateToken } from "./lib/utils/helpers";
 import { clearAllTempChunks, abortAllFileOperations, resetFileOperations } from "./lib/sync/operator_file";
@@ -628,12 +628,84 @@ export default class FastSync extends Plugin {
         })
       )
 
+      // 9. 右键分享（支持多选批量）
+      // Obsidian 对多选会触发 "files-menu"（复数），单选触发 "file-menu"；
+      // 两个都注册，多选时才显示批量入口。
+      this.registerEvent(
+        this.app.workspace.on("files-menu", (menu, files) => {
+          const notes = files.filter(
+            (f): f is TFile => f instanceof TFile && f.extension === "md"
+          )
+          if (notes.length < 2) return
+          menu.addItem((item) =>
+            item
+              .setTitle(`分享 ${notes.length} 个笔记`)
+              .setIcon("share-2")
+              .onClick(() => void this.shareFiles(notes))
+          )
+        })
+      )
+
+      this.registerEvent(
+        this.app.workspace.on("file-menu", (menu, file) => {
+          if (!(file instanceof TFile) || file.extension !== "md") return
+          menu.addItem((item) =>
+            item
+              .setTitle("分享到博客")
+              .setIcon("share-2")
+              .onClick(() => void this.shareFiles([file]))
+          )
+        })
+      )
+
       // 应用移动端 toast 高度 CSS 变量 / Apply mobile toast top CSS variable on startup
       this.applyMobileToastTop()
 
       // 从本地存储还原当前处于手动合并冲突锁定状态的文件路径
       this.syncState.conflictedPaths = this.localStorageManager.getConflictedPaths()
     })
+  }
+
+  /**
+   * 分享一篇或多篇笔记。
+   *
+   * 逐篇串行调用 createShare（而非并发），原因有三：服务端进度可见、避免瞬时并发、
+   * 失败时能精确定位到具体文件。createShare 自身会把接口错误弹出通知，这里只做汇总。
+   *
+   * 分享是可重复调用且幂等的：同一路径再次分享仍复用原有分享记录。
+   *
+   * @param files 待分享的文件（非 Markdown 会被忽略）
+   */
+  async shareFiles(files: TFile[]): Promise<void> {
+    const targets = files.filter((f) => f.extension === "md")
+    if (targets.length === 0) {
+      new Notice("没有可分享的 Markdown 笔记")
+      return
+    }
+
+    const progress = new Notice(`正在分享 0/${targets.length}…`, 0)
+    let ok = 0
+    const failed: string[] = []
+
+    for (let i = 0; i < targets.length; i++) {
+      progress.setMessage(`正在分享 ${i + 1}/${targets.length}：${targets[i].basename}`)
+      try {
+        const res = await this.api.createShare(targets[i].path, 0)
+        if (res) ok++
+        else failed.push(targets[i].basename)
+      } catch (e) {
+        failed.push(targets[i].basename)
+        console.error("[Fast Note Sync] shareFiles failed:", e)
+      }
+    }
+
+    progress.hide()
+    if (failed.length === 0) {
+      new Notice(targets.length === 1 ? "已分享" : `已分享 ${ok} 个笔记`)
+    } else {
+      const head = failed.slice(0, 3).join("、")
+      new Notice(`已分享 ${ok} 个，失败 ${failed.length} 个：${head}${failed.length > 3 ? " 等" : ""}`)
+    }
   }
 
   onunload() {

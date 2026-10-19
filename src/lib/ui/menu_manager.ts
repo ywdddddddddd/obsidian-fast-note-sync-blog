@@ -389,7 +389,9 @@ export class MenuManager {
     // const visibility = hasNew ? "block" : "none";
 
     // 只有在开启了显示红点设置时才在外部图标上显示 / Only show on external icons if setting is enabled
-    const ribbonShow = (this.plugin.settings.showUpgradeBadge && hasNew) ? "block" : "none";
+    // 禁止升级时不显示任何更新提醒 / Show no update badge at all when upgrades are blocked
+    const blocked = !!this.plugin.settings.blockUpgrade;
+    const ribbonShow = (this.plugin.settings.showUpgradeBadge && !blocked && hasNew) ? "block" : "none";
 
     if (this.badgeEl) {
       this.badgeEl.toggleClass("fns-hidden", ribbonShow === "none");
