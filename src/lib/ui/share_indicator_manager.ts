@@ -143,7 +143,9 @@ export class ShareIndicatorManager {
 
             this.sharedPaths = newSet;
             this.plugin.settings.sharedPaths = paths;
-            await this.plugin.saveData(this.plugin.settings);
+            // 必须走 saveSettings()：它负责拆分 autoRedirect/wsPreProbe 并混淆 apiToken。
+            // 直接 saveData(settings) 会把明文 token 与内部字段整包落盘。
+            await this.plugin.saveSettings();
             this.updateAllElements();
         } finally {
             this.isSyncing = false;
@@ -153,7 +155,7 @@ export class ShareIndicatorManager {
     async addSharedPath(path: string): Promise<void> {
         this.sharedPaths.add(path);
         this.plugin.settings.sharedPaths = Array.from(this.sharedPaths);
-        await this.plugin.saveData(this.plugin.settings);
+        await this.plugin.saveSettings();
         this.updateAllElements();
         this.plugin.menuManager?.updateShareIconColor();
     }
@@ -161,7 +163,7 @@ export class ShareIndicatorManager {
     async removeSharedPath(path: string): Promise<void> {
         this.sharedPaths.delete(path);
         this.plugin.settings.sharedPaths = Array.from(this.sharedPaths);
-        await this.plugin.saveData(this.plugin.settings);
+        await this.plugin.saveSettings();
         this.updateAllElements();
         this.plugin.menuManager?.updateShareIconColor();
         
