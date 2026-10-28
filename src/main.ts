@@ -31,6 +31,7 @@ import { $ } from "./i18n/lang";
 import { SsoImportModal } from "./views/sso-import-modal";
 import { StatusBarManager } from "./lib/ui/status_bar_manager";
 import { SyncProgressTracker } from "./lib/sync/sync_progress_tracker";
+import { CoverEditorModal } from "./views/cover-editor-modal";
 
 
 
@@ -513,6 +514,19 @@ export default class FastSync extends Plugin {
         },
       });
 
+      // 文章封面编辑器。用 checkCallback 而不是 callback，命令面板才会在没有打开笔记时
+      // 把这一条藏起来 —— 一条点了什么都不发生的命令比没有这条命令更让人困惑。
+      this.addCommand({
+        id: "edit-article-cover",
+        name: "设置当前笔记的文章封面",
+        checkCallback: (checking: boolean) => {
+          const file = this.app.workspace.getActiveFile();
+          if (!file || file.extension !== "md") return false;
+          if (!checking) this.openCoverEditor(file);
+          return true;
+        },
+      });
+
       // 3. 初始化 UI 管理器（ribbon 已在 onLayoutReady 之前创建，这里只完成其余初始化）
       // UI manager: ribbon was already created before onLayoutReady; finish the rest here
       this.menuManager.init()
@@ -655,6 +669,14 @@ export default class FastSync extends Plugin {
               .setIcon("share-2")
               .onClick(() => void this.shareFiles([file]))
           )
+          // 文章封面：只对 Markdown 笔记开放，因为封面参数写在笔记自己的 frontmatter 里。
+          // 放在分享下面，因为它是分享之后才会关心的第二件事。
+          menu.addItem((item) =>
+            item
+              .setTitle("设置文章封面")
+              .setIcon("image")
+              .onClick(() => this.openCoverEditor(file))
+          )
         })
       )
 
@@ -706,6 +728,22 @@ export default class FastSync extends Plugin {
       const head = failed.slice(0, 3).join("、")
       new Notice(`已分享 ${ok} 个，失败 ${failed.length} 个：${head}${failed.length > 3 ? " 等" : ""}`)
     }
+  }
+
+  /**
+   * 打开文章封面编辑器。
+   *
+   * 单独抽成一个方法而不是在两个入口里各 new 一次，是因为以后还会多出第三个入口
+   * （编辑器内右键图片），而三处各写一遍参数校验迟早会有一处忘记校验扩展名。
+   *
+   * @param file 目标笔记
+   */
+  openCoverEditor(file: TFile): void {
+    if (file.extension !== "md") {
+      new Notice("只有 Markdown 笔记能设置封面")
+      return
+    }
+    new CoverEditorModal(this.app, this, file).open()
   }
 
   onunload() {

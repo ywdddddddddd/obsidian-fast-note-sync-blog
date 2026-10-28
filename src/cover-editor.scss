@@ -1,0 +1,279 @@
+// 文章封面编辑器。
+//
+// 这里全部使用 Obsidian 的主题变量而不是写死颜色：这个面板出现在用户的编辑器里，
+// 不是博客上，跟着主题走才是对的。博客那边的米色系由服务端负责，插件里抄一遍
+// 只会在用户换主题时变成一个突兀的色块。
+//
+// 唯一写死的数值是尺寸与间距，因为它们的依据是"这个面板要多宽才放得下正方形预览"，
+// 与主题无关。
+
+.modal.fns-cover-modal {
+  width: min(880px, 94vw);
+  max-width: 94vw;
+}
+
+.fns-cover-subtitle {
+  margin-left: 8px;
+  font-size: var(--font-ui-smaller, 12px);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.fns-cover-body {
+  padding-top: 4px;
+}
+
+.fns-cover-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 22px;
+  align-items: start;
+}
+
+// 窄窗口（或移动端 Obsidian）退化成单列：正方形预览本来就占满宽度，
+// 再并排一列参数会把预览压到看不清裁切。
+@media (max-width: 760px) {
+  .fns-cover-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .modal.fns-cover-modal {
+    width: 96vw;
+    max-width: 96vw;
+  }
+}
+
+.fns-cover-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+// 正方形，与博客 .cover-frame 的 aspect-ratio: 1/1 一致。
+// 比例不同就意味着这里看到的裁切不是博客上的裁切，那这个预览就没有意义了。
+.fns-cover-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+  background-repeat: no-repeat;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+
+.fns-cover-frame:focus-visible {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.fns-cover-frame.is-dragging {
+  cursor: grabbing;
+}
+
+.fns-cover-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.fns-cover-empty-icon svg {
+  width: 34px;
+  height: 34px;
+}
+
+.fns-cover-empty-text {
+  font-size: var(--font-ui-smaller, 12px);
+}
+
+.fns-cover-hint {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.fns-cover-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  min-width: 0;
+}
+
+.fns-cover-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fns-cover-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fns-cover-row-label {
+  font-size: var(--font-ui-smaller, 12px);
+  color: var(--text-muted);
+}
+
+// 数值列用等宽数字，否则拖动时宽度会跳动，整行跟着抖。
+.fns-cover-value {
+  font-size: var(--font-ui-smaller, 12px);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.fns-cover-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fns-cover-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-small, 13px);
+  color: var(--text-normal);
+}
+
+// 覆盖 Obsidian 默认按钮的盒模型：这里要的是链接外观，不是一个凸起的按钮。
+.fns-cover-link {
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  font-size: var(--font-ui-smaller, 12px);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.fns-cover-link:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+.fns-cover-slider {
+  width: 100%;
+  margin: 0;
+}
+
+.fns-cover-anchors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fns-cover-anchor {
+  height: auto;
+  padding: 2px 9px;
+  font-size: var(--font-ui-smaller, 11.5px);
+  box-shadow: none;
+}
+
+.fns-cover-row--card {
+  gap: 8px;
+}
+
+.fns-cover-card-preview {
+  width: 168px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.fns-cover-card-frame {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--background-secondary);
+  background-repeat: no-repeat;
+}
+
+.fns-cover-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px;
+}
+
+.fns-cover-card-title {
+  font-size: var(--font-ui-smaller, 11.5px);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-normal);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fns-cover-card-meta {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.fns-cover-status {
+  font-size: var(--font-ui-smaller, 11.5px);
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.fns-cover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.fns-cover-footer-left,
+.fns-cover-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+.fns-cover-btn {
+  font-size: var(--font-ui-small, 12.5px);
+}
+
+.fns-cover-btn--primary {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.fns-cover-btn--primary:hover {
+  background: var(--interactive-accent-hover);
+}
+
+// 移除是破坏性操作，不该长得和取消一样重要。
+.fns-cover-btn--ghost {
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.fns-cover-btn--ghost:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-error);
+}
