@@ -57,6 +57,22 @@ const ALL_COVER_EXTENSIONS = new Set<string>([
     ...COVER_VIDEO_EXTENSIONS,
 ]);
 
+/**
+ * 从库外导入的封面落到这里。
+ *
+ * 为什么必须复制进来：博客服务端在 Linux 上按**仓库内路径**解析封面，它看不到你本机的
+ * `C:\pics\a.jpg`。把绝对路径原样写进 frontmatter，本地预览也许能开，线上只会画一个占位色块，
+ * 而且不会报错。复制进库是唯一能让两边都成立的做法。
+ *
+ * 单独一个目录而不是散在笔记旁边：封面是附属物，不是笔记，不该出现在按文件夹组织的目录树里。
+ */
+export const COVER_IMPORT_DIR = "_assets/covers";
+
+/** 该扩展名能不能当封面。字符串版本，供库外导入使用（那里还没有 TFile）。 */
+export function isCoverExtension(ext: string): boolean {
+    return ALL_COVER_EXTENSIONS.has(ext.toLowerCase());
+}
+
 /** 一张封面在编辑器里的完整状态。 */
 export interface BlogCover {
     /** 指向图片/视频的仓库路径；空字符串表示没有封面。 */
@@ -80,7 +96,7 @@ export function defaultBlogCover(): BlogCover {
 
 /** 该文件能不能当封面：靠扩展名判断，与服务端同一套规则。 */
 export function isCoverCandidate(file: TFile): boolean {
-    return ALL_COVER_EXTENSIONS.has(file.extension.toLowerCase());
+    return isCoverExtension(file.extension);
 }
 
 export function isVideoCover(ref: string): boolean {

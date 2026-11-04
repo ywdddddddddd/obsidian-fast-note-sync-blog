@@ -51,12 +51,15 @@
   min-width: 0;
 }
 
-// 正方形，与博客 .cover-frame 的 aspect-ratio: 1/1 一致。
-// 比例不同就意味着这里看到的裁切不是博客上的裁切，那这个预览就没有意义了。
+// 与博客卡片一致的裁切比例。
+//
+// 线上卡片的封面在右侧 60%、卡片高 168px（约 3:1），不是正方形。以前这里是 1/1，
+// 于是同一个焦点值在编辑器里看着对、到列表卡上就被裁掉了 —— 预览一旦和真实渲染不同，
+// 它就只剩下装饰作用。
 .fns-cover-frame {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 3 / 1;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--background-modifier-border);
@@ -194,25 +197,39 @@
 }
 
 .fns-cover-card-preview {
-  width: 168px;
+  position: relative;
+  width: 100%;
+  min-height: 78px;
   border-radius: 10px;
   overflow: hidden;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
 }
 
+// 右侧 60%、整高、淡到 42% 并让左缘渐隐——这四条就是线上 .post-card .cover 的取值。
+// 预览做成「上图下文」的旧卡片时，它只能说明"有图"，不能说明"文字压上去之后还能不能看"。
 .fns-cover-card-frame {
-  width: 100%;
-  aspect-ratio: 1 / 1;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 60%;
   background-color: var(--background-secondary);
   background-repeat: no-repeat;
+  opacity: 0.42;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0, 0, 0, 0.15) 30%, #000 72%);
+  mask-image: linear-gradient(90deg, transparent 0, rgba(0, 0, 0, 0.15) 30%, #000 72%);
+  pointer-events: none;
 }
 
 .fns-cover-card-body {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px 8px;
+  padding: 10px 12px;
+  max-width: 55%;
 }
 
 .fns-cover-card-title {

@@ -3,6 +3,7 @@ import type FastSync from "../main";
 import {
     BlogCover,
     COVER_DEFAULT_FOCUS,
+    COVER_IMPORT_DIR,
     COVER_MAX_ZOOM,
     COVER_MIN_ZOOM,
     clampCoverZoom,
@@ -11,6 +12,7 @@ import {
     coverRefFor,
     defaultBlogCover,
     isCoverCandidate,
+    isCoverExtension,
     isVideoCover,
     readBlogCover,
     writeBlogCover,
@@ -220,6 +222,10 @@ export class CoverEditorModal extends Modal {
         }
         const pick = fileValue.createEl("button", { cls: "fns-cover-link", text: "更换" });
         pick.addEventListener("click", () => this.openPicker());
+        // 库外图片：选完复制进库再引用，否则线上解析不到（服务端在 Linux 上看不到本机盘符）。
+        const outside = fileValue.createEl("button", { cls: "fns-cover-link", text: "库外" });
+        outside.setAttr("title", `从库外选择图片，复制到 ${COVER_IMPORT_DIR}/ 后引用`);
+        outside.addEventListener("click", () => this.openOutsidePicker());
 
         // 2. 缩放
         const zoomRow = panel.createDiv("fns-cover-row");
@@ -313,14 +319,20 @@ export class CoverEditorModal extends Modal {
         // 先清空：新文件解析失败时，框不能继续画着上一张图，让人以为更换成功了。
         this.imageSrc = "";
 
-        if (!this.imageFile) {
+        const coverPath = this.imageFile ? this.imageFile.path : this.cover.ref;
+        if (!coverPath) {
             this.paint();
             return;
         }
 
+        // The path is resolved once and reused: an imported cover has no TFile yet, so the ref is
+        // the only thing available, and every later use must agree on which of the two it took.
+        //
+        // 路径只解析一次并复用：导入的封面还没有 TFile，ref 是唯一可用的东西，
+        // 而后面每一处使用都必须与这一次选到的来源一致。
         let src: string;
         try {
-            src = this.app.vault.adapter.getResourcePath(this.imageFile.path);
+            src = this.app.vault.adapter.getResourcePath(coverPath);
         } catch {
             this.imageFailed = true;
             this.paint();
@@ -332,7 +344,7 @@ export class CoverEditorModal extends Modal {
         // the editor degrades to "you can pick it, you cannot crop it" rather than refusing.
         // 视频封面无法用 Image 量尺寸，而这个仓库里没有一篇用到。框保持声明比例、面板照常可用，
         // 于是编辑器退化成「能选、不能裁」，而不是直接不可用。
-        if (isVideoCover(this.imageFile.path)) {
+        if (isVideoCover(coverPath)) {
             this.imageSrc = src;
             this.imageFailed = true;
             this.paint();
@@ -380,8 +392,9 @@ export class CoverEditorModal extends Modal {
 
     private paintInto(el: HTMLElement | null): void {
         if (!el) return;
-        const size = el.clientWidth;
-        if (!size || !this.imageReady || !this.imageSrc) {
+        const width = el.clientWidth;
+        const height = el.clientHeight;
+        if (!width || !height || !this.imageReady || !this.imageSrc) {
             el.toggleClass("is-empty", !this.imageReady);
             if (this.imageSrc) {
                 el.style.backgroundImage = `url("${this.imageSrc}")`;
@@ -391,13 +404,21 @@ export class CoverEditorModal extends Modal {
             return;
         }
 
-        // Same geometry the server produces: at zoom 1 the image exactly covers the square, and
+        // Same geometry the server produces: at zoom 1 the image exactly covers the frame, and
         // every extra zoom multiplies both axes about the same scale factor. background-position
         // with percentages then means exactly what object-position means, so the crop matches.
-        // 与服务端完全相同的几何：zoom 为 1 时图片正好铺满正方形，之后每一份放大都按同一比例
+        //
+        // The frame is no longer a square. The blog card puts its cover in the right 60% of a
+        // 168px-tall row, which is about 3:1 — a square canvas was showing a crop the list would
+        // never produce, so the focus dot looked right in the editor and wrong on the page.
+        //
+        // 与服务端完全相同的几何：zoom 为 1 时图片正好铺满画框，之后每一份放大都按同一比例
         // 乘在两个轴上。百分比形式的 background-position 与 object-position 语义完全一致，
         // 因此裁切结果对得上。
-        const baseScale = Math.max(size / this.naturalWidth, size / this.naturalHeight);
+        //
+        // 画框不再是正方形。博客卡片把封面放在 168px 高的那一行的右侧 60%，比例约 3:1；
+        // 正方形画布显示的是列表永远不会产生的裁切，于是焦点在编辑器里看着对、到页面上就错了。
+        const baseScale = Math.max(width / this.naturalWidth, height / this.naturalHeight);
         const scale = baseScale * clampCoverZoom(this.cover.zoom);
         el.toggleClass("is-empty", false);
         el.style.backgroundImage = `url("${this.imageSrc}")`;
@@ -554,6 +575,81 @@ export class CoverEditorModal extends Modal {
             this.render();
             void this.loadImage();
         }).open();
+    }
+
+    /**
+     * 从库外挑一张图。
+     *
+     * 用 `<input type="file">` 而不是 Electron 的 dialog：Obsidian 已经关掉了 remote 模块，
+     * 而 file input 在桌面与移动端都能用，也不需要 Node 的 fs。选中的字节走 adapter 写进库，
+     * 于是线上那一侧看到的是普通的仓库内附件，跟手工拖进来的图没有区别。
+     */
+    private openOutsidePicker(): void {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*,video/mp4,video/webm,video/quicktime";
+        input.style.display = "none";
+        document.body.appendChild(input);
+
+        input.addEventListener("change", () => {
+            const file = input.files && input.files[0] ? input.files[0] : null;
+            input.remove();
+            if (file) void this.importOutsideCover(file);
+        });
+        input.click();
+    }
+
+    /** 把库外文件复制进 `_assets/covers/`，然后当作普通库内封面引用。 */
+    private async importOutsideCover(file: File): Promise<void> {
+        const name = file.name || "cover";
+        const ext = name.split(".").pop() ?? "";
+        if (!isCoverExtension(ext)) {
+            new Notice(`不支持的封面格式：${ext || "(无扩展名)"}`);
+            return;
+        }
+
+        let buffer: ArrayBuffer;
+        try {
+            buffer = await file.arrayBuffer();
+        } catch (err) {
+            console.error("[Fast Note Sync] read outside cover failed:", err);
+            new Notice("读取图片失败");
+            return;
+        }
+
+        const adapter = this.app.vault.adapter;
+        try {
+            if (!(await adapter.exists(COVER_IMPORT_DIR))) {
+                await adapter.mkdir(COVER_IMPORT_DIR);
+            }
+        } catch {
+            // mkdir 在目录已存在时会抛错，吞掉即可；下面写文件才是真正的失败点。
+            // mkdir throws when the folder already exists; the write below is the real failure point.
+        }
+
+        const safe = name.replace(/[\\/:*?"<>|]/g, "_");
+        const dot = safe.lastIndexOf(".");
+        const stem = dot > 0 ? safe.slice(0, dot) : safe;
+        const suffix = dot > 0 ? safe.slice(dot) : "";
+        let dest = `${COVER_IMPORT_DIR}/${safe}`;
+        for (let i = 1; i <= 99; i++) {
+            if (!(await adapter.exists(dest))) break;
+            dest = `${COVER_IMPORT_DIR}/${stem}-${i}${suffix}`;
+        }
+
+        try {
+            await adapter.writeBinary(dest, buffer);
+        } catch (err) {
+            console.error("[Fast Note Sync] write imported cover failed:", err);
+            new Notice("写入封面失败，请检查库目录权限");
+            return;
+        }
+
+        this.imageFile = null;
+        this.cover.ref = dest;
+        this.render();
+        void this.loadImage();
+        new Notice(`已导入封面：${dest}`);
     }
 
     // ── 落盘 ───────────────────────────────────────────────────────────
