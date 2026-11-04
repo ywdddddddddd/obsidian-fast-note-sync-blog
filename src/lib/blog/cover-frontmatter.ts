@@ -66,7 +66,7 @@ const ALL_COVER_EXTENSIONS = new Set<string>([
  *
  * 单独一个目录而不是散在笔记旁边：封面是附属物，不是笔记，不该出现在按文件夹组织的目录树里。
  */
-export const COVER_IMPORT_DIR = "_assets/covers";
+export const COVER_IMPORT_DIR = "_assets/cover";
 
 /** 该扩展名能不能当封面。字符串版本，供库外导入使用（那里还没有 TFile）。 */
 export function isCoverExtension(ext: string): boolean {

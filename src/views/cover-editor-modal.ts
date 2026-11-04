@@ -600,7 +600,7 @@ export class CoverEditorModal extends Modal {
         input.click();
     }
 
-    /** 把库外文件复制进 `_assets/covers/`，然后当作普通库内封面引用。 */
+    /** 把库外文件复制进 `_assets/cover/`，然后当作普通库内封面引用。 */
     private async importOutsideCover(file: File): Promise<void> {
         const name = file.name || "cover";
         const ext = name.split(".").pop() ?? "";
