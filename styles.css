@@ -273,6 +273,41 @@
   color: var(--text-error);
 }
 
+.fns-cover-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fns-cover-pick-thumb {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-s, 4px);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.fns-cover-pick-thumb.is-video {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.fns-cover-pick-thumb.is-video svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fns-cover-pick-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fast-note-sync-ribbon-icon {
   animation: rotate 2s linear infinite;
   /* 旋转动画：2秒一圈，线性，无限循环 1 */

@@ -294,3 +294,47 @@
   background: var(--background-modifier-hover);
   color: var(--text-error);
 }
+
+
+// ── 仓库图片选择器的缩略图 ───────────────────────────────────────────────
+//
+// FuzzySuggestModal 的每一行默认只有一个文本节点。这里改成「缩略图 + 路径」的两列：
+// 封面选择是靠图认的，不是靠文件名认的，一堆 IMG_2xxx 在纯文本列表里长得完全一样。
+//
+// 尺寸写死而颜色不写死：36px 是能让 3:1 的卡片封面看出构图的最小高度，与主题无关；
+// 边框与底色仍然取 Obsidian 的变量。
+.fns-cover-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fns-cover-pick-thumb {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-s, 4px);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+// 视频封面没有缩略图可画，用一枚图标占住同一格，让人看出这一项是视频而不是坏掉的图。
+.fns-cover-pick-thumb.is-video {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.fns-cover-pick-thumb.is-video svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fns-cover-pick-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

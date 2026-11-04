@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, Modal, Notice, TFile, setIcon } from "obsidian";
+import { App, FuzzyMatch, FuzzySuggestModal, Modal, Notice, TFile, setIcon } from "obsidian";
 import type FastSync from "../main";
 import {
     BlogCover,
@@ -17,6 +17,7 @@ import {
     readBlogCover,
     writeBlogCover,
 } from "../lib/blog/cover-frontmatter";
+import { shouldTranscodeToPng, toPngName, webpToPngBuffer } from "../lib/blog/cover-image";
 
 /**
  * 文章封面编辑器。
@@ -608,13 +609,30 @@ export class CoverEditorModal extends Modal {
             return;
         }
 
+        // webp 在这里换成 png，尺寸不动。
+        //
+        // 站主的原话是「只转码，不限尺寸」：不缩放不裁剪不降质量，只换容器。所以下面
+        // 除了解码再编码之外没有第二步。失败了就明确说出来并放弃导入 —— 产出别的格式
+        // 却报成功，人会到线上才发现封面还是 webp。
         let buffer: ArrayBuffer;
-        try {
-            buffer = await file.arrayBuffer();
-        } catch (err) {
-            console.error("[Fast Note Sync] read outside cover failed:", err);
-            new Notice("读取图片失败");
-            return;
+        let importName = name;
+        if (shouldTranscodeToPng(ext)) {
+            try {
+                buffer = await webpToPngBuffer(file);
+                importName = toPngName(name);
+            } catch (err) {
+                console.error("[Fast Note Sync] transcode webp cover failed:", err);
+                new Notice("webp 转 png 失败，封面未导入。可以先把图另存为 png 再试。");
+                return;
+            }
+        } else {
+            try {
+                buffer = await file.arrayBuffer();
+            } catch (err) {
+                console.error("[Fast Note Sync] read outside cover failed:", err);
+                new Notice("读取图片失败");
+                return;
+            }
         }
 
         const adapter = this.app.vault.adapter;
@@ -627,7 +645,7 @@ export class CoverEditorModal extends Modal {
             // mkdir throws when the folder already exists; the write below is the real failure point.
         }
 
-        const safe = name.replace(/[\\/:*?"<>|]/g, "_");
+        const safe = importName.replace(/[\\/:*?"<>|]/g, "_");
         const dot = safe.lastIndexOf(".");
         const stem = dot > 0 ? safe.slice(0, dot) : safe;
         const suffix = dot > 0 ? safe.slice(dot) : "";
@@ -720,6 +738,35 @@ class CoverFilePicker extends FuzzySuggestModal<TFile> {
 
     getItemText(item: TFile): string {
         return item.path;
+    }
+
+    /**
+     * 每一项前面放一张缩略图。
+     *
+     * 默认的 FuzzySuggestModal 只印路径，而封面这件事恰恰是「文件名帮不上忙」：一堆
+     * `IMG_2xxx.png` 与 `牙发育-1.png` 在列表里长得一样，光看字选不出来。缩略图把这一步
+     * 从「读文件名」变回「看那张图」，这也正是读者打开选择器时想做的事。
+     *
+     * 视频封面没有可用的缩略图（把 <video> 塞进列表要解码每个文件），改用一枚胶片图标 ——
+     * 它的作用是让人知道这一项会被当作视频封面，而不是假装那是一张图。
+     */
+    renderSuggestion(match: FuzzyMatch<TFile>, el: HTMLElement): void {
+        const file = match.item;
+        el.addClass("fns-cover-pick");
+        if (isVideoCover(file.path)) {
+            setIcon(el.createDiv({ cls: "fns-cover-pick-thumb is-video" }), "film");
+        } else {
+            el.createEl("img", {
+                cls: "fns-cover-pick-thumb",
+                attr: {
+                    src: this.app.vault.adapter.getResourcePath(file.path),
+                    alt: "",
+                    loading: "lazy",
+                    decoding: "async",
+                },
+            });
+        }
+        el.createSpan({ cls: "fns-cover-pick-name", text: file.path });
     }
 
     onChooseItem(item: TFile): void {
