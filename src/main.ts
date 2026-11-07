@@ -54,18 +54,27 @@ interface LegacySettings extends Partial<PluginSettings> {
  * friends 数组必须写在 frontmatter 的 `---` 之间：服务端只从 frontmatter 解析它，
  * 而 Obsidian 的 Properties 面板也只把这段当属性。正文留给导语。
  *
+ * site 块描述本站自己：desc/email 进「复制本站信息」卡，avatar 同时充当分享卡与
+ * 名片页的兜底头像。三项都可选，删掉哪一行，页面上就整行省略。
+ *
  * 用 \n 拼而不是模板字符串，是为了让换行在源码里就是显式的一个字符——
  * 与 i18n 里那些被误写成真实换行的值不同，这里每一行都能一眼数清。
  */
 const FRIENDS_PAGE_SKELETON = [
   "---",
   "page: friends",
+  "site:",
+  "  desc: 一句话介绍本站        # 可选",
+  "  email: you@example.com     # 可选",
+  "  avatar: https://example.com/avatar.png  # 可选",
   "friends:",
   "  - name: 张三的博客        # 必填",
   "    url: https://zhangsan.com  # 必填",
   "    avatar: https://zhangsan.com/av.png  # 可选",
   "    desc: 记录生活与技术      # 可选",
   "    group: 技术博客           # 可选",
+  "    email: zhangsan@example.com  # 可选",
+  "    feed: https://zhangsan.com/rss.xml  # 可选",
   "---",
   "",
   "欢迎交换友链，申请方式见下。",
