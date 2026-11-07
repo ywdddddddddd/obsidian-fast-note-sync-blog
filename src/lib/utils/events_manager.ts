@@ -5,7 +5,6 @@ import { fileModify, fileDelete, fileRename, fileDeleteByPath } from "../sync/op
 import { folderModify, folderDelete, folderRename } from "../sync/operator_folder";
 import { NoteHistoryModal } from "../../views/note-history/history-modal";
 import { dump, isPathInConfigSyncDirs } from "./helpers";
-import { ShareModal } from "../../views/share-modal";
 import type FastSync from "../../main";
 import { $ } from "../../i18n/lang";
 
@@ -345,14 +344,8 @@ export class EventManager {
         })
     })
 
-    menu.addItem((item: MenuItem) => {
-      item
-        .setTitle($("ui.share.title"))
-        .setIcon("share-2")
-        .onClick(() => {
-          new ShareModal(this.plugin.app, this.plugin, file.path).open()
-        })
-    })
-
+    // 单页分享（ShareModal）的右键入口已收拢：入口只保留状态栏分享图标与
+    // 设置页「分享管理」，ShareModal 类本身保留（share-manage-modal「修改」仍会打开它）。
+    // 博客分享走 main.ts 的「分享到博客」右键项。
   }
 }
