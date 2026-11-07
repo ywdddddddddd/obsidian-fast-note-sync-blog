@@ -660,4 +660,9 @@ export default {
   "setting.blog_page.open": "페이지 열기",
   "setting.blog_page.open_btn": "열기",
   "setting.blog_page.open_desc": "브라우저에서 /blog/about 을 엽니다.",
+
+  "ui.blog.friends_new": "블로그: 친구 링크 페이지 만들기",
+  "ui.blog.friends_exists": "친구 링크 페이지가 이미 있습니다. 열었습니다.",
+  "ui.blog.friends_created": "友链.md 파일을 만들었습니다. 편집한 뒤 블로그에 공유하면 게시됩니다.",
+  "ui.blog.friends_create_failed": "친구 링크 페이지를 만들지 못했습니다. Vault에 쓸 수 있는지 확인하세요.",
 };

@@ -693,4 +693,9 @@ export default {
   "setting.blog_page.open": "打开简历页",
   "setting.blog_page.open_btn": "打开",
   "setting.blog_page.open_desc": "在浏览器中打开 /blog/about。",
+
+  "ui.blog.friends_new": "博客：新建友链页",
+  "ui.blog.friends_exists": "友链页已存在，已为你打开。",
+  "ui.blog.friends_created": "已创建 友链.md，编辑后分享到博客即可发布。",
+  "ui.blog.friends_create_failed": "创建友链页失败，请检查 vault 是否可写。",
 };

@@ -1,4 +1,4 @@
-import { Plugin, Platform, addIcon, Notice, TFile, TFolder } from "obsidian";
+import { Plugin, Platform, addIcon, Notice, TFile, TFolder, normalizePath } from "obsidian";
 
 import { dump, dumpError, checkAndNotifyCaseConflict, setLogEnabled, isPathMatch, parseRules, stringifyRules, getPluginDir, showSyncNotice, loadApiToken, saveApiToken, loadApiUrl, saveApiUrl, loadVault, saveVault, loadAutoRedirect, saveAutoRedirect, loadWsPreProbe, saveWsPreProbe, obfuscateToken } from "./lib/utils/helpers";
 import { clearAllTempChunks, abortAllFileOperations, resetFileOperations } from "./lib/sync/operator_file";
@@ -47,6 +47,30 @@ interface LegacySettings extends Partial<PluginSettings> {
   configExcludeWhitelist?: string;
   showSyncNotice?: boolean;
 }
+
+/**
+ * 友链页骨架。
+ *
+ * friends 数组必须写在 frontmatter 的 `---` 之间：服务端只从 frontmatter 解析它，
+ * 而 Obsidian 的 Properties 面板也只把这段当属性。正文留给导语。
+ *
+ * 用 \n 拼而不是模板字符串，是为了让换行在源码里就是显式的一个字符——
+ * 与 i18n 里那些被误写成真实换行的值不同，这里每一行都能一眼数清。
+ */
+const FRIENDS_PAGE_SKELETON = [
+  "---",
+  "page: friends",
+  "friends:",
+  "  - name: 张三的博客        # 必填",
+  "    url: https://zhangsan.com  # 必填",
+  "    avatar: https://zhangsan.com/av.png  # 可选",
+  "    desc: 记录生活与技术      # 可选",
+  "    group: 技术博客           # 可选",
+  "---",
+  "",
+  "欢迎交换友链，申请方式见下。",
+  "",
+].join("\n");
 
 
 export default class FastSync extends Plugin {
@@ -528,6 +552,16 @@ export default class FastSync extends Plugin {
         },
       });
 
+      // 友链页：与服务端 `page: friends` 机制配套的唯一增量。
+      // 只负责建文件并打开；编辑、同步、分享仍走既有路径，没有第二条数据管线。
+      this.addCommand({
+        id: "create-friends-page",
+        name: $("ui.blog.friends_new"),
+        callback: () => {
+          void this.createFriendsPage();
+        },
+      });
+
       // 3. 初始化 UI 管理器（ribbon 已在 onLayoutReady 之前创建，这里只完成其余初始化）
       // UI manager: ribbon was already created before onLayoutReady; finish the rest here
       this.menuManager.init()
@@ -881,6 +915,38 @@ export default class FastSync extends Plugin {
       return
     }
     new CoverEditorModal(this.app, this, file).open()
+  }
+
+  /**
+   * 新建友链页（vault 根目录的 友链.md）。
+   *
+   * 服务端把 frontmatter 里 `page: friends` 的笔记当作 /blog/friends 页面，
+   * 卡片列表就写在同一个 frontmatter 的 friends 数组里 —— 编辑即发布，没有额外的同步管线。
+   *
+   * 两条刻意的做法：
+   *  1. 用 vault.create 而不是 adapter.write。前者会触发 Obsidian 的文件事件，
+   *     既有同步管线因此能像对待任何新笔记一样把它上传；后者绕过了事件，文件要等下一轮扫描才出现。
+   *  2. 已存在只打开、绝不覆盖。覆盖主人的文件是不可逆的，而一次创建操作不值得那个风险。
+   */
+  private async createFriendsPage(): Promise<void> {
+    const path = normalizePath("友链.md")
+    const existing = this.app.vault.getAbstractFileByPath(path)
+    if (existing) {
+      new Notice($("ui.blog.friends_exists"))
+      if (existing instanceof TFile) {
+        await this.app.workspace.getLeaf(false).openFile(existing)
+      }
+      return
+    }
+
+    try {
+      const file = await this.app.vault.create(path, FRIENDS_PAGE_SKELETON)
+      new Notice($("ui.blog.friends_created"))
+      await this.app.workspace.getLeaf(false).openFile(file)
+    } catch (e) {
+      new Notice($("ui.blog.friends_create_failed"))
+      dumpError("create friends page failed:", e)
+    }
   }
 
   onunload() {

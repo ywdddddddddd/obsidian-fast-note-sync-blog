@@ -660,4 +660,9 @@ export default {
   "setting.blog_page.open": "ページを開く",
   "setting.blog_page.open_btn": "開く",
   "setting.blog_page.open_desc": "ブラウザで /blog/about を開きます。",
+
+  "ui.blog.friends_new": "ブログ：友達リンクページを作成",
+  "ui.blog.friends_exists": "友達リンクページは既に存在します。開きました。",
+  "ui.blog.friends_created": "友链.md を作成しました。編集してからブログに共有すると公開されます。",
+  "ui.blog.friends_create_failed": "友達リンクページを作成できませんでした。Vault が書き込み可能か確認してください。",
 };

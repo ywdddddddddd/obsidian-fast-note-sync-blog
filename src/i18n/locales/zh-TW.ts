@@ -660,4 +660,9 @@ export default {
   "setting.blog_page.open": "開啟履歷頁",
   "setting.blog_page.open_btn": "開啟",
   "setting.blog_page.open_desc": "在瀏覽器中開啟 /blog/about。",
+
+  "ui.blog.friends_new": "部落格：新建友鏈頁",
+  "ui.blog.friends_exists": "友鏈頁已存在，已為你開啟。",
+  "ui.blog.friends_created": "已建立 友链.md，編輯後分享到部落格即可發佈。",
+  "ui.blog.friends_create_failed": "建立友鏈頁失敗，請確認 vault 可寫入。",
 };

@@ -694,4 +694,9 @@ export default {
   "setting.blog_page.open": "Open the page",
   "setting.blog_page.open_btn": "Open",
   "setting.blog_page.open_desc": "Opens /blog/about in your browser.",
+
+  "ui.blog.friends_new": "Blog: New Friends Page",
+  "ui.blog.friends_exists": "The friends page already exists; opened it.",
+  "ui.blog.friends_created": "Created 友链.md. Edit it, then share it to the blog.",
+  "ui.blog.friends_create_failed": "Could not create the friends page. Check that the vault is writable.",
 };
