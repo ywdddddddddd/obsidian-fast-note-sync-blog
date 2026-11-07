@@ -1973,7 +1973,7 @@ export class SettingTab extends PluginSettingTab {
       }
 
       this.renderBlogGraphSettings(set, cfg)
-      this.renderBlogRssSettings(set, cfg.homeUrl)
+      this.renderBlogRssSettings(set, cfg)
       this.renderBlogAccessLogSettings(set)
       this.renderBlogPageSettings(set)
     })()
@@ -2067,10 +2067,10 @@ export class SettingTab extends PluginSettingTab {
    * 这里不提供开关：订阅源由服务端按已发布笔记实时生成，关闭它只会让读者复制到一个 404。
    * 提供的是地址、复制与校验 —— 也就是把"我该把哪个链接给别人"这件事一次说清。
    */
-  private renderBlogRssSettings(set: HTMLElement, homeUrl: string) {
+  private renderBlogRssSettings(set: HTMLElement, cfg: BlogConfig) {
     new Setting(set).setName($("setting.blog_rss.title")).setHeading()
 
-    const rssUrl = homeUrl.replace(/\/+$/, "") + "/rss.xml"
+    const rssUrl = cfg.homeUrl.replace(/\/+$/, "") + "/rss.xml"
 
     new Setting(set)
       .setName($("setting.blog_rss.url"))
@@ -2096,6 +2096,56 @@ export class SettingTab extends PluginSettingTab {
           .onClick(() => window.open(rssUrl, "_blank")),
       )
     this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_rss.url_desc"))
+
+    // 内容范围与条数：这两样决定友链伙伴首次订阅时看到多少篇。
+    // recent 窗口 + 条数上限是无状态 RSS 里「首次不打扰」的标准做法；
+    // 各栏目（仓库一级文件夹）自动拥有自己的源 /blog/c/<栏目>/rss.xml，在栏目页即可订阅。
+    new Setting(set)
+      .setName($("setting.blog_rss.mode"))
+      .addDropdown((dd) =>
+        dd
+          .addOption("recent", $("setting.blog_rss.mode_recent"))
+          .addOption("all", $("setting.blog_rss.mode_all"))
+          .setValue(cfg.feedMode)
+          .onChange(async (value) => {
+            const ok = await this.plugin.api.updateBlogConfig({
+              feedMode: value as "recent" | "all",
+            })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_rss.mode_desc"))
+
+    new Setting(set)
+      .setName($("setting.blog_rss.days"))
+      .addText((text) =>
+        text
+          .setPlaceholder("30")
+          .setValue(String(cfg.feedRecentDays))
+          .onChange(async (value) => {
+            const n = Number.parseInt(value, 10)
+            // 同图谱设置：非法输入交给服务端夹取，不在这里静默改成别的值。
+            if (!Number.isFinite(n)) return
+            const ok = await this.plugin.api.updateBlogConfig({ feedRecentDays: n })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_rss.days_desc"))
+
+    new Setting(set)
+      .setName($("setting.blog_rss.max"))
+      .addText((text) =>
+        text
+          .setPlaceholder("5")
+          .setValue(String(cfg.feedMaxItems))
+          .onChange(async (value) => {
+            const n = Number.parseInt(value, 10)
+            if (!Number.isFinite(n)) return
+            const ok = await this.plugin.api.updateBlogConfig({ feedMaxItems: n })
+            if (!ok) new Notice($("setting.blog.not_admin"))
+          }),
+      )
+    this.setDescWithBreaks(set.lastElementChild as HTMLElement, $("setting.blog_rss.max_desc"))
   }
 
   /**

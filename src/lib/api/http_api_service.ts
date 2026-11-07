@@ -185,6 +185,12 @@ export interface BlogConfig {
     showGraph: boolean;
     /** 文章页图谱的默认深度，服务端夹取在 1..3 */
     localGraphDepth: number;
+    /** RSS 内容范围：recent = 只收最近 feedRecentDays 天创建的文章；all = 全部已发布文章 */
+    feedMode: "recent" | "all";
+    /** recent 模式的时间窗（天），服务端夹取在 1..365 */
+    feedRecentDays: number;
+    /** 每份订阅源的条数上限，服务端夹取在 1..50 */
+    feedMaxItems: number;
 }
 
 /** 部分更新：未提供的字段保持原值 */
@@ -197,6 +203,9 @@ export interface BlogConfigPatch {
     maxGraphNodes?: number;
     showGraph?: boolean;
     localGraphDepth?: number;
+    feedMode?: "recent" | "all";
+    feedRecentDays?: number;
+    feedMaxItems?: number;
 }
 
 /**
