@@ -694,27 +694,50 @@ export default class FastSync extends Plugin {
    * 逐篇串行调用 createShare（而非并发），原因有三：服务端进度可见、避免瞬时并发、
    * 失败时能精确定位到具体文件。createShare 自身会把接口错误弹出通知，这里只做汇总。
    *
-   * 分享是可重复调用且幂等的：同一路径再次分享仍复用原有分享记录。
+   * 服务端对同一笔记的再次分享是「撤销旧记录、新建记录」（share_service.go ShareGenerate），
+   * slug 会变、旧链接会 404，因此分享前先查一次状态：已分享的直接跳过，
+   * 保证这个函数对重复调用（批量/文件夹一键分享尤其如此）是安全的。
    *
    * @param files 待分享的文件（非 Markdown 会被忽略）
    */
   async shareFiles(files: TFile[]): Promise<void> {
     const targets = files.filter((f) => f.extension === "md")
     if (targets.length === 0) {
-      new Notice("没有可分享的 Markdown 笔记")
+      new Notice($("ui.share.none_md"))
       return
     }
 
-    const progress = new Notice(`正在分享 0/${targets.length}…`, 0)
+    const progress = new Notice($("ui.share.progress", { done: 0, total: targets.length }), 0)
     let ok = 0
+    let skipped = 0
     const failed: string[] = []
 
     for (let i = 0; i < targets.length; i++) {
-      progress.setMessage(`正在分享 ${i + 1}/${targets.length}：${targets[i].basename}`)
+      progress.setMessage(
+        $("ui.share.progress_item", { done: i + 1, total: targets.length, name: targets[i].basename })
+      )
+      // 防呆：getShare 只查有效分享，查得到说明已在博客，跳过以免换 slug。
+      // 查不到但本地标记仍为已分享时（对账间隙/瞬时失败），同样按已分享处理，宁可少分享；
+      // 刚刚在本插件里取消过的会走 removeSharedPath 清掉本地标记，不影响正常的取消后再分享。
+      try {
+        const existing = await this.api.getShare(targets[i].path)
+        if (existing || this.shareIndicatorManager?.hasPath(targets[i].path)) {
+          skipped++
+          continue
+        }
+      } catch (e) {
+        // 查询失败不阻塞，后面的 createShare 自会给出网络错误提示
+        console.error("[Fast Note Sync] share status check failed:", e)
+      }
       try {
         const res = await this.api.createShare(targets[i].path, 0)
-        if (res) ok++
-        else failed.push(targets[i].basename)
+        if (res) {
+          ok++
+          // 立即记入本地分享集合：图标即时点亮，也供后续批量的 hasPath 兜底
+          void this.shareIndicatorManager?.addSharedPath(targets[i].path)
+        } else {
+          failed.push(targets[i].basename)
+        }
       } catch (e) {
         failed.push(targets[i].basename)
         console.error("[Fast Note Sync] shareFiles failed:", e)
@@ -722,11 +745,16 @@ export default class FastSync extends Plugin {
     }
 
     progress.hide()
-    if (failed.length === 0) {
-      new Notice(targets.length === 1 ? "已分享" : `已分享 ${ok} 个笔记`)
-    } else {
+    const skipTail = skipped > 0 ? "\n" + $("ui.share.skipped", { count: skipped }) : ""
+    if (failed.length > 0) {
       const head = failed.slice(0, 3).join("、")
-      new Notice(`已分享 ${ok} 个，失败 ${failed.length} 个：${head}${failed.length > 3 ? " 等" : ""}`)
+      const more = failed.length > 3 ? $("ui.share.more") : ""
+      new Notice($("ui.share.partial", { ok, failed: failed.length, head, more }) + skipTail)
+    } else if (ok > 0) {
+      const body = targets.length === 1 && skipped === 0 ? $("ui.share.done") : $("ui.share.done_count", { count: ok })
+      new Notice(body + skipTail)
+    } else if (skipped > 0) {
+      new Notice($("ui.share.skipped", { count: skipped }))
     }
   }
 
