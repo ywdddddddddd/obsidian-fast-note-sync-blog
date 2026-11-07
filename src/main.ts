@@ -1,4 +1,4 @@
-import { Plugin, Platform, addIcon, Notice, TFile } from "obsidian";
+import { Plugin, Platform, addIcon, Notice, TFile, TFolder } from "obsidian";
 
 import { dump, dumpError, checkAndNotifyCaseConflict, setLogEnabled, isPathMatch, parseRules, stringifyRules, getPluginDir, showSyncNotice, loadApiToken, saveApiToken, loadApiUrl, saveApiUrl, loadVault, saveVault, loadAutoRedirect, saveAutoRedirect, loadWsPreProbe, saveWsPreProbe, obfuscateToken } from "./lib/utils/helpers";
 import { clearAllTempChunks, abortAllFileOperations, resetFileOperations } from "./lib/sync/operator_file";
@@ -32,6 +32,7 @@ import { SsoImportModal } from "./views/sso-import-modal";
 import { StatusBarManager } from "./lib/ui/status_bar_manager";
 import { SyncProgressTracker } from "./lib/sync/sync_progress_tracker";
 import { CoverEditorModal } from "./views/cover-editor-modal";
+import { ConfirmModal } from "./views/confirm-modal";
 
 
 
@@ -642,7 +643,7 @@ export default class FastSync extends Plugin {
         })
       )
 
-      // 9. 右键分享（支持多选批量）
+      // 9. 右键分享/取消分享（支持多选批量与文件夹一键分享）
       // Obsidian 对多选会触发 "files-menu"（复数），单选触发 "file-menu"；
       // 两个都注册，多选时才显示批量入口。
       this.registerEvent(
@@ -653,22 +654,53 @@ export default class FastSync extends Plugin {
           if (notes.length < 2) return
           menu.addItem((item) =>
             item
-              .setTitle(`分享 ${notes.length} 个笔记`)
+              .setTitle($("ui.share.share_batch", { count: notes.length }))
               .setIcon("share-2")
               .onClick(() => void this.shareFiles(notes))
+          )
+          // 批量取消：只统计当前已分享的笔记，≥2 篇才显示。
+          // 已分享状态来自服务端对账（sharedPaths），可能短暂滞后。
+          const shared = notes.filter((f) => this.shareIndicatorManager?.hasPath(f.path))
+          if (shared.length < 2) return
+          menu.addItem((item) =>
+            item
+              .setTitle($("ui.share.cancel_batch", { count: shared.length }))
+              .setIcon("unlink")
+              .onClick(() => void this.unshareFiles(shared))
           )
         })
       )
 
       this.registerEvent(
         this.app.workspace.on("file-menu", (menu, file) => {
+          // 文件夹：一键分享整个文件夹（含子文件夹），确认篇数后复用 shareFiles
+          if (file instanceof TFolder) {
+            const notes = this.collectMarkdownInFolder(file)
+            if (notes.length === 0) return
+            menu.addItem((item) =>
+              item
+                .setTitle($("ui.share.share_folder", { count: notes.length }))
+                .setIcon("share-2")
+                .onClick(() => this.confirmShareFolder(file, notes))
+            )
+            return
+          }
           if (!(file instanceof TFile) || file.extension !== "md") return
           menu.addItem((item) =>
             item
-              .setTitle("分享到博客")
+              .setTitle($("ui.share.blog"))
               .setIcon("share-2")
               .onClick(() => void this.shareFiles([file]))
           )
+          // 已分享的笔记才显示取消入口（同上，状态可能短暂滞后）
+          if (this.shareIndicatorManager?.hasPath(file.path)) {
+            menu.addItem((item) =>
+              item
+                .setTitle($("ui.share.cancel_blog"))
+                .setIcon("unlink")
+                .onClick(() => void this.unshareFiles([file]))
+            )
+          }
           // 文章封面：只对 Markdown 笔记开放，因为封面参数写在笔记自己的 frontmatter 里。
           // 放在分享下面，因为它是分享之后才会关心的第二件事。
           menu.addItem((item) =>
@@ -756,6 +788,83 @@ export default class FastSync extends Plugin {
     } else if (skipped > 0) {
       new Notice($("ui.share.skipped", { count: skipped }))
     }
+  }
+
+  /**
+   * 取消一篇或多篇笔记的博客分享。
+   *
+   * 先弹确认：取消后对应链接立即失效（软撤销，但 slug 不可恢复）。
+   * 确认后逐篇串行 cancelShare；服务端按 path 只匹配有效（active）分享，
+   * 未分享/已取消的会失败，cancelShare 自身会弹服务端错误，这里只做汇总。
+   * 成功后移除本地分享标记（sharedPaths），文件浏览器图标与筛选立即更新。
+   */
+  async unshareFiles(files: TFile[]): Promise<void> {
+    const targets = files.filter((f) => f.extension === "md")
+    if (targets.length === 0) {
+      new Notice($("ui.share.unshare_none"))
+      return
+    }
+
+    new ConfirmModal(
+      this.app,
+      $("ui.share.cancel_blog"),
+      $("ui.share.unshare_confirm", { count: targets.length }),
+      () => void this.doUnshare(targets)
+    ).open()
+  }
+
+  private async doUnshare(targets: TFile[]): Promise<void> {
+    const progress = new Notice($("ui.share.unshare_progress", { done: 0, total: targets.length }), 0)
+    let ok = 0
+    const failed: string[] = []
+
+    for (let i = 0; i < targets.length; i++) {
+      progress.setMessage($("ui.share.unshare_progress", { done: i + 1, total: targets.length }))
+      try {
+        const success = await this.api.cancelShare(targets[i].path)
+        if (success) {
+          ok++
+          void this.shareIndicatorManager?.removeSharedPath(targets[i].path)
+        } else {
+          failed.push(targets[i].basename)
+        }
+      } catch (e) {
+        failed.push(targets[i].basename)
+        console.error("[Fast Note Sync] unshareFiles failed:", e)
+      }
+    }
+
+    progress.hide()
+    if (failed.length === 0) {
+      new Notice(targets.length === 1 ? $("ui.share.unshare_done") : $("ui.share.unshare_done_count", { count: ok }))
+    } else {
+      const head = failed.slice(0, 3).join("、")
+      const more = failed.length > 3 ? $("ui.share.more") : ""
+      new Notice($("ui.share.unshare_partial", { ok, failed: failed.length, head, more }))
+    }
+  }
+
+  /**
+   * 文件夹一键分享：弹确认（显示篇数与范围）后复用 shareFiles。
+   */
+  private confirmShareFolder(folder: TFolder, notes: TFile[]): void {
+    new ConfirmModal(
+      this.app,
+      $("ui.share.folder_confirm_title"),
+      $("ui.share.folder_confirm", { folder: folder.path === "" ? "/" : folder.path, count: notes.length }),
+      () => void this.shareFiles(notes),
+      undefined,
+      undefined,
+      false
+    ).open()
+  }
+
+  /**
+   * 递归收集文件夹下全部 Markdown 笔记（含子文件夹）。
+   */
+  private collectMarkdownInFolder(folder: TFolder): TFile[] {
+    const prefix = folder.path === "" ? "" : folder.path + "/"
+    return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix))
   }
 
   /**
